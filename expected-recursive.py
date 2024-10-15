@@ -64,8 +64,8 @@ def get_pursuit_point(helper_start: np.ndarray, num_points: int) -> np.ndarray:
     return np.array(path)
 
 def main():
-    NPOINTS = 9
-    helper_start = np.array([3/4, 1.0])
+    NPOINTS = 3
+    helper_start = np.array([1.0, 1.0])
     fail_points = np.array([x for x in np.linspace(0, 1, NPOINTS)])[1:]
     print(fail_points)
     path, delivery_time = get_solution(0, array_to_tuple(helper_start), array_to_tuple(fail_points))

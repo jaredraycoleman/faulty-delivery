@@ -1,3 +1,4 @@
+from typing import List
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider
@@ -56,8 +57,29 @@ def get_solution(h: np.ndarray, i: int, n: int):
     
     return min_value, points
 
+
+def get_pursuit_points(helper_start: np.ndarray,
+                       num_points: int,
+                       ratio: float = 0.5) -> np.ndarray:
+    start_pos = np.array([ratio, 0.0])
+    pursuer_pos = np.copy(helper_start)
+    dt_pursued = (1-ratio) / (num_points - 1)
+    dt_purser = 1 / (num_points - 1)
+    path: List[np.ndarray] = [np.copy(pursuer_pos)]
+    for _ in range(num_points - 1):
+        pursuit_point = np.array([start_pos[0] + dt_pursued, 0.0])
+        # print(pursuit_point)
+        if np.linalg.norm(pursuit_point - pursuer_pos) < 1 / num_points:
+            pursuer_pos = pursuit_point
+        else:
+            pursuer_pos += dt_purser * (pursuit_point - pursuer_pos) / np.linalg.norm(pursuit_point - pursuer_pos)
+        start_pos += np.array([dt_pursued, 0.0])
+        path.append(np.copy(pursuer_pos))
+
+    return np.array(path)
+
 # The main function with interactivity
-def interactive_plot():
+def interactive_plot(n: int = 8):
     def onclick(event):
         # Check if the click is within the plot bounds
         if event.xdata is not None and event.ydata is not None:
@@ -65,7 +87,7 @@ def interactive_plot():
             initial_position = np.array([event.xdata, event.ydata])
 
             # Compute the points and plot them
-            min_value, points = get_solution(initial_position, 1, 8)
+            min_value, points = get_solution(initial_position, 1, n)
             all_points = [initial_position] + points
 
             # Convert points to format for plotting
@@ -78,6 +100,12 @@ def interactive_plot():
             # Plot the points
             ax.plot(x_values, y_values, marker='o', linestyle='-', color='b', markersize=5)
             ax.scatter([0, 1], [0, 0])  # Highlight the extra points
+
+            # plot pursuit points
+            for ratio in [0, 0.125, 0.25, 0.5]:
+                pursuit_points = get_pursuit_points(initial_position, n+1, ratio)
+                ax.plot(pursuit_points[:, 0], pursuit_points[:, 1], 'ro-', alpha=0.5)
+
             ax.set_xlabel('x')
             ax.set_ylabel('y')
             ax.set_title('Recursive Positions and Extra Points')
@@ -125,7 +153,7 @@ def interactive_plot():
 
 def noninteractive_plot():
     # Call the function
-    initial_position = np.array([1/2, 1/2])
+    initial_position = np.array([0.0, 1.0])
     min_value, points = get_solution(initial_position, 1, 8)
 
     all_points = [initial_position] + points
@@ -137,10 +165,17 @@ def noninteractive_plot():
     # Plot the points
     plt.plot(x_values, y_values, marker='o', linestyle='-', color='b', markersize=5)
     plt.scatter([0, 1], [0, 0]) # Highlight the extra points
+
+    # plot pursuit points
+    pursuit_points = get_pursuit_points(initial_position, 9)
+    print(pursuit_points)
+    plt.plot(pursuit_points[:, 0], pursuit_points[:, 1], 'ro-', alpha=0.5)
+
     plt.xlabel('x')
     plt.ylabel('y')
     plt.title('Recursive Positions and Extra Points')
     plt.grid(True)
+    plt.gca().set_aspect('equal', adjustable='box')
     plt.legend()
     plt.savefig('expected-recursive-2.png')
 
@@ -148,6 +183,12 @@ def noninteractive_plot():
     print(f"Expected delivery time: {min_value:0.4f}")
     path_str = ' -> '.join([f'({p[0]:0.2f}, {p[1]:0.2f})' for p in all_points])
     print(f"Path: {path_str}")
+
+    # get total length of path
+    total_length = 0
+    for i in range(len(all_points) - 1):
+        total_length += np.linalg.norm(all_points[i + 1] - all_points[i])
+    print(f"Total length of path: {total_length}")
 
 # plot expected delivery times over evenly spaced helper starting points
 # on the interval [0, 1] x [0, 1]
@@ -179,7 +220,7 @@ def plot_expected_delivery_times(n: int = 8, num_points=100):
 
 def main():
     # noninteractive_plot()
-    interactive_plot()
+    interactive_plot(n=8)
     # plot_expected_delivery_times(num_points=10)
 
 

@@ -1,4 +1,5 @@
-from typing import List
+from functools import partial
+from typing import List, Tuple
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider
@@ -25,7 +26,7 @@ def distance(h: np.ndarray, target: np.ndarray) -> float:
     """
     return np.linalg.norm(target - h)
 
-def get_solution(h: np.ndarray, i: int, n: int):
+def _get_solution(h: np.ndarray, i: int, n: int) -> Tuple[float, np.ndarray]:
     """Returns the expected delivery time and the path of the helper, 
     supposing the helper starts at position h and the start is going to
     fail at time i/n, (i+1)/n, ..., 1 with equal probability.
@@ -34,12 +35,14 @@ def get_solution(h: np.ndarray, i: int, n: int):
         h: The current position of the helper.
         i: The current step.
         n: The number of potential failure points.
+
+    Returns:
+        The expected delivery time and the path of the helper
     """
     if i == n: # Base case - starter fails at 1
         hprime = new_position(h, np.array([1, 0]), n) # helper moves towards (1, 0) while starter is moving towards (1, 0)
         delay = distance(hprime, np.array([1, 0])) # extra time taken for helper to reach (1, 0)
         return 1 + delay, [hprime] # return the expected delivery time and the path
-    
     
     Fi = np.linspace(i/n, 1, n - i + 1) # potential fail
     min_value = float('inf')
@@ -47,7 +50,7 @@ def get_solution(h: np.ndarray, i: int, n: int):
     for f in Fi: # minimize over which point to move towards
         h_prime = new_position(h, np.array([f, 0]), n) # helper moves towards (f, 0)
         t1 = 1 + distance(h_prime, np.array([i/n, 0])) # failure occurs at end of this round
-        t2, sub_points = get_solution(h_prime, i + 1, n)
+        t2, sub_points = _get_solution(h_prime, i + 1, n)
         
         current_value = (1/len(Fi)) * t1 + (1 - 1/len(Fi)) * t2
         
@@ -57,16 +60,19 @@ def get_solution(h: np.ndarray, i: int, n: int):
     
     return min_value, points
 
+def get_solution(h: np.ndarray, n: int) -> Tuple[float, np.ndarray]:
+    val, points = _get_solution(h, 1, n)
+    return val, [h] + points
 
 def get_pursuit_points(helper_start: np.ndarray,
                        num_points: int,
-                       ratio: float = 0.5) -> np.ndarray:
+                       ratio: float = 0.0) -> Tuple[float, np.ndarray]:
     start_pos = np.array([ratio, 0.0])
     pursuer_pos = np.copy(helper_start)
-    dt_pursued = (1-ratio) / (num_points - 1)
-    dt_purser = 1 / (num_points - 1)
+    dt_pursued = (1-ratio) / num_points
+    dt_purser = 1 / num_points
     path: List[np.ndarray] = [np.copy(pursuer_pos)]
-    for _ in range(num_points - 1):
+    for _ in range(num_points):
         pursuit_point = np.array([start_pos[0] + dt_pursued, 0.0])
         # print(pursuit_point)
         if np.linalg.norm(pursuit_point - pursuer_pos) < 1 / num_points:
@@ -76,50 +82,61 @@ def get_pursuit_points(helper_start: np.ndarray,
         start_pos += np.array([dt_pursued, 0.0])
         path.append(np.copy(pursuer_pos))
 
-    return np.array(path)
+    expected_delivery = np.mean([
+        1+np.linalg.norm(point - np.array([i / (num_points - 1), 0.0]))
+        for i, point in enumerate(path[1:])
+    ])
+    return expected_delivery, np.array(path)
 
 # The main function with interactivity
 def interactive_plot(n: int = 8):
+    agents = {
+        'opt': partial(get_solution, n=n),
+        'pursuit': partial(get_pursuit_points, num_points=n),
+        'pursuit-half': partial(get_pursuit_points, num_points=n, ratio=0.5)
+    }
+    colors = ['b', 'r', 'g']
+
     def onclick(event):
         # Check if the click is within the plot bounds
         if event.xdata is not None and event.ydata is not None:
             # Get the clicked x and y coordinates
             initial_position = np.array([event.xdata, event.ydata])
 
-            # Compute the points and plot them
-            min_value, points = get_solution(initial_position, 1, n)
-            all_points = [initial_position] + points
-
-            # Convert points to format for plotting
-            x_values = [p[0] for p in all_points]
-            y_values = [p[1] for p in all_points]
-
-            # Clear the previous plot but keep the axis limits unchanged
             ax.cla()  # Use cla() to clear the plot without affecting axis limits
+            solutions = {}
+            for i, (name, agent) in enumerate(agents.items()):
+                exp_del, all_points = agent(initial_position)
+                solutions[name] = (exp_del, all_points)
 
-            # Plot the points
-            ax.plot(x_values, y_values, marker='o', linestyle='-', color='b', markersize=5)
-            ax.scatter([0, 1], [0, 0])  # Highlight the extra points
+                # Convert points to format for plotting
+                x_values = [p[0] for p in all_points]
+                y_values = [p[1] for p in all_points]
 
-            # plot pursuit points
-            for ratio in [0, 0.125, 0.25, 0.5]:
-                pursuit_points = get_pursuit_points(initial_position, n+1, ratio)
-                ax.plot(pursuit_points[:, 0], pursuit_points[:, 1], 'ro-', alpha=0.5)
-
+                # Plot the points
+                ax.plot(
+                    x_values, y_values, marker='o',
+                    linestyle='-', color=colors[i],
+                    markersize=5, alpha=0.5
+                )
+                
+            ax.scatter([0, 1], [0, 0])
             ax.set_xlabel('x')
             ax.set_ylabel('y')
             ax.set_title('Recursive Positions and Extra Points')
             ax.grid(True)
-            ax.legend(['Path'])
+            ax.legend(agents.keys())
 
             # Restore the fixed axis limits
             ax.set_xlim(xlim)
             ax.set_ylim(ylim)
 
             # Update the text output
-            min_val_text.set_text(f"Expected delivery time: {min_value:0.4f}")
-            path_str = ' -> '.join([f'({p[0]:0.2f}, {p[1]:0.2f})' for p in all_points])
-            path_text.set_text(f"Path: {path_str}")
+            del_times = " | ".join([
+                f"{name}: {exp_del:0.4f}"
+                for name, (exp_del, _) in solutions.items()
+            ])
+            min_val_text.set_text(f"Expected delivery times\n{del_times}")
 
             # Redraw the plot
             plt.draw()
@@ -130,7 +147,7 @@ def interactive_plot(n: int = 8):
     ax.set_aspect('equal')  # Set aspect ratio to be equal
 
     # Create text areas for displaying results, positioning them in figure space
-    min_val_text = fig.text(0.5, 0.2, "", ha="center", fontsize=10)  # Moved to figure space
+    min_val_text = fig.text(0.5, 0.15, "", ha="center", fontsize=10)  # Moved to figure space
     path_text = fig.text(0.5, 0.15, "", ha="center", fontsize=8)     # Moved to figure space
 
     # Set initial axis limits (you can adjust these as needed)
@@ -154,7 +171,7 @@ def interactive_plot(n: int = 8):
 def noninteractive_plot():
     # Call the function
     initial_position = np.array([0.0, 1.0])
-    min_value, points = get_solution(initial_position, 1, 8)
+    min_value, points = get_solution(initial_position, 8)
 
     all_points = [initial_position] + points
 
@@ -167,7 +184,7 @@ def noninteractive_plot():
     plt.scatter([0, 1], [0, 0]) # Highlight the extra points
 
     # plot pursuit points
-    pursuit_points = get_pursuit_points(initial_position, 9)
+    _, pursuit_points = get_pursuit_points(initial_position, 9)
     print(pursuit_points)
     plt.plot(pursuit_points[:, 0], pursuit_points[:, 1], 'ro-', alpha=0.5)
 
@@ -204,7 +221,7 @@ def plot_expected_delivery_times(n: int = 8, num_points=100):
         for j in range(num_points):
             print(f"{i*num_points + j + 1}/{num_points**2} ({(i*num_points + j + 1)/num_points**2 * 100:.2f}%)", end='\r')
             initial_position = np.array([X[i, j], Y[i, j]])
-            min_value, _ = get_solution(initial_position, 1, n)
+            min_value, _ = get_solution(initial_position, n)
             Z[i, j] = min_value
 
     print(" " * 100, end='\r')

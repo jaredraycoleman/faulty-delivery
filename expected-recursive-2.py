@@ -2,7 +2,7 @@ from functools import partial
 from typing import List, Tuple
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.widgets import Slider
+from scipy.optimize import minimize
 
 
 def new_position(h: np.ndarray, target: np.ndarray, n: int) -> np.ndarray:
@@ -40,29 +40,29 @@ def _get_solution(h: np.ndarray, i: int, n: int) -> Tuple[float, np.ndarray]:
         The expected delivery time and the path of the helper
     """
     if i == n: # Base case - starter fails at 1
-        hprime = new_position(h, np.array([1, 0]), n) # helper moves towards (1, 0) while starter is moving towards (1, 0)
-        delay = distance(hprime, np.array([1, 0])) # extra time taken for helper to reach (1, 0)
-        return 1 + delay, [hprime] # return the expected delivery time and the path
+        # hprime = new_position(h, np.array([1, 0]), n) # helper moves towards (1, 0) while starter is moving towards (1, 0)
+        delay = distance(h, np.array([1, 0])) # extra time taken for helper to reach (1, 0)
+        return 1 + delay, [h] # return the expected delivery time and the path
     
     Fi = np.linspace(i/n, 1, n - i + 1) # potential fail
     min_value = float('inf')
     points = []
     for f in Fi: # minimize over which point to move towards
+        t1 = 1 + distance(h, np.array([i/n, 0])) # failure occurs at beginning of this round
         h_prime = new_position(h, np.array([f, 0]), n) # helper moves towards (f, 0)
-        t1 = 1 + distance(h_prime, np.array([i/n, 0])) # failure occurs at end of this round
         t2, sub_points = _get_solution(h_prime, i + 1, n)
         
         current_value = (1/len(Fi)) * t1 + (1 - 1/len(Fi)) * t2
         
         if current_value < min_value:
             min_value = current_value
-            points = [h_prime] + sub_points
+            points = [h] + sub_points
     
     return min_value, points
 
 def get_solution(h: np.ndarray, n: int) -> Tuple[float, np.ndarray]:
-    val, points = _get_solution(h, 1, n)
-    return val, [h] + points
+    val, points = _get_solution(h, 0, n)
+    return val, points
 
 def get_pursuit_points(helper_start: np.ndarray,
                        num_points: int,
@@ -74,8 +74,7 @@ def get_pursuit_points(helper_start: np.ndarray,
     path: List[np.ndarray] = [np.copy(pursuer_pos)]
     for _ in range(num_points):
         pursuit_point = np.array([start_pos[0] + dt_pursued, 0.0])
-        # print(pursuit_point)
-        if np.linalg.norm(pursuit_point - pursuer_pos) < 1 / num_points:
+        if np.linalg.norm(pursuit_point - pursuer_pos) < dt_purser:
             pursuer_pos = pursuit_point
         else:
             pursuer_pos += dt_purser * (pursuit_point - pursuer_pos) / np.linalg.norm(pursuit_point - pursuer_pos)
@@ -83,19 +82,111 @@ def get_pursuit_points(helper_start: np.ndarray,
         path.append(np.copy(pursuer_pos))
 
     expected_delivery = np.mean([
-        1+np.linalg.norm(point - np.array([i / (num_points - 1), 0.0]))
-        for i, point in enumerate(path[1:])
+        1 + distance(point, np.array([i / num_points, 0.0]))
+        for i, point in enumerate(path)
     ])
     return expected_delivery, np.array(path)
+
+def tangent_x_intercepts(x: np.ndarray, y: np.ndarray) -> np.ndarray:
+    # Compute the slopes using central differences
+    slopes = np.zeros_like(y)
+    slopes[1:-1] = (y[2:] - y[:-2]) / (x[2:] - x[:-2])
+    slopes[0] = (y[1] - y[0]) / (x[1] - x[0])  # Forward difference for the first point
+    slopes[-1] = (y[-1] - y[-2]) / (x[-1] - x[-2])  # Backward difference for the last point
+
+    # Compute the x-intercepts of the tangent lines
+    x_intercepts = x - y / slopes
+
+    # Handle cases where the slope is zero (to avoid division by zero)
+    x_intercepts[slopes == 0] = np.nan  # No x-intercept for horizontal tangents
+
+    return x_intercepts
+
+def solve_minimization(helper_start: np.ndarray, n=100):
+    """
+    Solves the optimization problem numerically.
+
+    Args:
+        helper_start (np.ndarray): Initial position of the helper.
+        N (int): Number of discretization points.
+
+    Returns:
+        Tuple[float, np.ndarray]: The expected delivery time and the path of the helper.
+    """
+    x0, y0 = helper_start
+    t = np.linspace(0, 1, n + 1) # fail points
+    dt = t[1] - t[0] # time step
+
+    # Initial guess for x and y (straight line to destination (1, 0))
+    x_init = np.linspace(x0, x0 + 1, n + 1)
+    y_init = np.linspace(y0, y0, n + 1)
+
+    z_init = np.concatenate([x_init, y_init]) # Flatten x and y for optimization
+    def objective(z):
+        x = z[:n + 1]
+        y = z[n + 1:]
+        expected_delivery = np.mean([
+            1 + distance(np.array([x[i], y[i]]), np.array([t[i], 0.0]))
+            for i in range(n + 1)
+        ])
+        return expected_delivery
+
+    # Constraints
+    constraints = []
+    def speed_constraint(z):
+        x = z[:n + 1]
+        y = z[n + 1:]
+        dx = np.diff(x)
+        dy = np.diff(y)
+        ds = np.sqrt(dx ** 2 + dy ** 2)
+        return ds - dt  # Should be zero
+
+    # Initial conditions
+    initial_x = lambda z: z[0] - x0
+    initial_y = lambda z: z[n + 1] - y0
+
+    # Add constraints
+    for i in range(n):
+        constraints.append({'type': 'eq', 'fun': lambda z, i=i: speed_constraint(z)[i]})
+    constraints.append({'type': 'eq', 'fun': initial_x})
+    constraints.append({'type': 'eq', 'fun': initial_y})
+
+    # Bounds (optional, can be adjusted)
+    bounds = [(None, None)] * len(z_init)
+
+    # Optimization
+    result = minimize(objective, z_init, method='SLSQP', bounds=bounds, constraints=constraints, options={'disp': True, 'maxiter': 1000})
+
+    if result.success:
+        z_opt = result.x
+        x_opt = z_opt[:n + 1]
+        y_opt = z_opt[n + 1:]
+        expected_delivery = objective(z_opt)
+        tangent_intercepts = tangent_x_intercepts(x_opt, y_opt)
+        print(f"Diff: {np.diff(tangent_intercepts)}")
+        print(f"Double-Diff: {np.diff(np.diff(tangent_intercepts))*1000}")
+        ratios = []
+        for i, xintercept in enumerate(tangent_intercepts):
+            ratio = (xintercept - i / n) / (1 - i / n)
+            print(f"{xintercept:0.2f}, {ratio:0.2f}")
+            ratios.append(ratio)
+
+        print(f"Ratio Diff: {np.diff(ratios)}")
+
+        path = np.array([x_opt, y_opt]).T
+        return expected_delivery, path
+    else:
+        raise ValueError("Optimization failed: " + result.message)
 
 # The main function with interactivity
 def interactive_plot(n: int = 8):
     agents = {
         'opt': partial(get_solution, n=n),
-        'pursuit': partial(get_pursuit_points, num_points=n),
-        'pursuit-half': partial(get_pursuit_points, num_points=n, ratio=0.5)
+        # 'pursuit-half': partial(get_pursuit_points, num_points=n, ratio=0.5),
+        'pursuit-0.53': partial(get_pursuit_points, num_points=n*5, ratio=0.53),
+        'opt-2': partial(solve_minimization, n=n*5)
     }
-    colors = ['b', 'r', 'g']
+    colors = ['b', 'r', 'g', 'y']
 
     def onclick(event):
         # Check if the click is within the plot bounds
@@ -151,8 +242,8 @@ def interactive_plot(n: int = 8):
     path_text = fig.text(0.5, 0.15, "", ha="center", fontsize=8)     # Moved to figure space
 
     # Set initial axis limits (you can adjust these as needed)
-    xlim = [0, 2]
-    ylim = [0, 2]
+    xlim = [0, 1]
+    ylim = [0, 1]
     ax.set_xlim(xlim)
     ax.set_ylim(ylim)
 
@@ -171,7 +262,7 @@ def interactive_plot(n: int = 8):
 def noninteractive_plot():
     # Call the function
     initial_position = np.array([0.0, 1.0])
-    min_value, points = get_solution(initial_position, 8)
+    min_value, points = get_solution(initial_position, 7)
 
     all_points = [initial_position] + points
 
@@ -185,7 +276,6 @@ def noninteractive_plot():
 
     # plot pursuit points
     _, pursuit_points = get_pursuit_points(initial_position, 9)
-    print(pursuit_points)
     plt.plot(pursuit_points[:, 0], pursuit_points[:, 1], 'ro-', alpha=0.5)
 
     plt.xlabel('x')
@@ -196,7 +286,6 @@ def noninteractive_plot():
     plt.legend()
     plt.savefig('expected-recursive-2.png')
 
-    # Print the results
     print(f"Expected delivery time: {min_value:0.4f}")
     path_str = ' -> '.join([f'({p[0]:0.2f}, {p[1]:0.2f})' for p in all_points])
     print(f"Path: {path_str}")
@@ -237,7 +326,7 @@ def plot_expected_delivery_times(n: int = 8, num_points=100):
 
 def main():
     # noninteractive_plot()
-    interactive_plot(n=8)
+    interactive_plot(n=7)
     # plot_expected_delivery_times(num_points=10)
 
 

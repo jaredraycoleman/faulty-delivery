@@ -11,7 +11,7 @@ def main():
 
     starting_pos = np.array([0.5, 1])
     points = np.array([0, 1/2, 1])
-    probs = np.array([0, 1/2, 1/2])
+    probs = np.array([2/100, 49/100, 49/100])
 
 
     @lru_cache(maxsize=None)
@@ -20,18 +20,18 @@ def main():
         if lidx == 0 and ridx == len(points) - 1:
             return 0.0, []
         elif lidx == 0: # must move to ridx + 1
-            prob_at_next = probs[ridx + 1] # / (1 - np.sum(probs[lidx:ridx+1]))
+            prob_at_next = probs[ridx + 1] / (1 - np.sum(probs[lidx:ridx+1]))
             sub_cost, sub_moves = opt(lidx, ridx + 1, False)
             dist = abs(cur_pos - points[ridx + 1])
             return prob_at_next * (dist + (1 - points[ridx + 1])) + (1 - prob_at_next) * (dist + sub_cost), ['r'] + sub_moves
         elif ridx == len(points) - 1: # must move to lidx - 1
-            prob_at_next = probs[lidx - 1] # / (1 - np.sum(probs[lidx:ridx+1]))
+            prob_at_next = probs[lidx - 1] / (1 - np.sum(probs[lidx:ridx+1]))
             sub_cost, sub_moves = opt(lidx - 1, ridx, True)
             dist = abs(cur_pos - points[lidx - 1])
             return prob_at_next * (dist + (1 - points[lidx - 1])) + (1 - prob_at_next) * (dist + sub_cost), ['l'] + sub_moves
         else:
-            prob_at_next_left = probs[lidx - 1] # / (1 - np.sum(probs[lidx:ridx+1]))
-            prob_at_next_right = probs[ridx + 1] # / (1 - np.sum(probs[lidx:ridx+1]))
+            prob_at_next_left = probs[lidx - 1] / (1 - np.sum(probs[lidx:ridx+1]))
+            prob_at_next_right = probs[ridx + 1] / (1 - np.sum(probs[lidx:ridx+1]))
             sub_cost_left, sub_moves_left = opt(lidx - 1, ridx, True)
             sub_cost_right, sub_moves_right = opt(lidx, ridx + 1, False)
             dist_left = abs(cur_pos - points[lidx - 1]) 
@@ -49,9 +49,8 @@ def main():
     for idx in range(len(points)):
         initial_cost = np.linalg.norm(starting_pos - np.array([points[idx], 0]))
         sub_cost, moves = opt(idx, idx, True)
-
         cost = probs[idx] * (initial_cost + (1 - points[idx])) + (1 - probs[idx]) * (initial_cost + sub_cost)
-        print(f"Cost to start at {points[idx]}: {round(cost, 4)}")
+        print(f"Cost to start at {idx}: {round(cost, 4)}")
         if cost < min_cost:
             min_cost = cost
             best_moves = moves

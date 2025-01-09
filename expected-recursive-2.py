@@ -163,15 +163,10 @@ def solve_minimization(helper_start: np.ndarray, n=100):
         y_opt = z_opt[n + 1:]
         expected_delivery = objective(z_opt)
         tangent_intercepts = tangent_x_intercepts(x_opt, y_opt)
-        print(f"Diff: {np.diff(tangent_intercepts)}")
-        print(f"Double-Diff: {np.diff(np.diff(tangent_intercepts))*1000}")
         ratios = []
         for i, xintercept in enumerate(tangent_intercepts):
             ratio = (xintercept - i / n) / (1 - i / n)
-            print(f"{xintercept:0.2f}, {ratio:0.2f}")
             ratios.append(ratio)
-
-        print(f"Ratio Diff: {np.diff(ratios)}")
 
         path = np.array([x_opt, y_opt]).T
         return expected_delivery, path
@@ -183,7 +178,7 @@ def interactive_plot(n: int = 8):
     agents = {
         'opt': partial(get_solution, n=n),
         # 'pursuit-half': partial(get_pursuit_points, num_points=n, ratio=0.5),
-        'pursuit-0.53': partial(get_pursuit_points, num_points=n*5, ratio=0.53),
+        'pursuit-0.5': partial(get_pursuit_points, num_points=n*5, ratio=0.5),
         'opt-2': partial(solve_minimization, n=n*5)
     }
     colors = ['b', 'r', 'g', 'y']
@@ -203,6 +198,12 @@ def interactive_plot(n: int = 8):
                 # Convert points to format for plotting
                 x_values = [p[0] for p in all_points]
                 y_values = [p[1] for p in all_points]
+                t_values = np.linspace(0, 1, len(all_points))
+
+                print(name)
+                print(np.array(x_values))
+                print(np.array(y_values))
+                print(np.array(t_values))
 
                 # Plot the points
                 ax.plot(

@@ -127,8 +127,13 @@ def plot_solution(
         plt.text(points[i], 0.01, f"{prob:.2f}", fontsize=12, ha='center')
     for i, p in enumerate(path):
         if isinstance(p, int):
-            plt.text(points[p-1], -0.02, f"{i}", fontsize=12, ha='center')
+            plt.text(points[p-1], -0.04, f"{i}", fontsize=12, ha='center')
     plt.legend()
+
+    # set x and y axis limits
+    plt.xlim(-0.1, 1.1)
+    plt.ylim(-0.1, H[1] + 0.1)
+
     if savepath:
         plt.savefig(savepath)
     else:
